@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>Hệ Thống Ôn Thi Trắc Nghiệm</title>
+<style>
+:root{
+  --bg:#f1f5f9; --card:#fff; --text:#1e293b; --muted:#64748b; --line:#e2e8f0;
+  --brand:#2563eb; --brand-d:#1d4ed8; --head:#2563eb; --stat-bg:#1d4ed8;
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e; --ok-text:#166534;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444; --bad-text:#991b1b;
+  --hover:#f8fafc;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --line:#334155;
+    --head:#1e3a8a; --stat-bg:#172554; --hover:#273449;
+    --ok-bg:#14532d; --ok-text:#bbf7d0; --bad-bg:#7f1d1d; --bad-text:#fecaca; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent;
+  padding-bottom:calc(48px + env(safe-area-inset-bottom,0px))}
+.hidden{display:none!important}
+header{background:var(--head);color:#fff;position:sticky;top:0;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,.2);
+  padding-top:env(safe-area-inset-top,0px)}
+.wrap{max-width:860px;margin:0 auto;padding:0 16px}
+.head-in{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:12px 0;
+  padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+h1{font-size:18px;margin:0;font-weight:700}
+#realtime-stats{display:flex;gap:14px;background:var(--stat-bg);padding:6px 14px;border-radius:10px;font-size:14px;font-weight:600}
+.s-ok{color:#86efac}.s-bad{color:#fca5a5}.s-pg{color:#bfdbfe}
+main{padding-top:20px}
+.card{background:var(--card);border-radius:16px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid var(--line)}
+#upload-zone{border:2px dashed #93c5fd;text-align:center;padding:32px 20px}
+#upload-zone .ico{font-size:48px}
+#upload-zone p{margin:10px 0}
+.tip{font-size:13px;color:var(--ok);font-weight:600}
+.btn{appearance:none;-webkit-appearance:none;border:0;border-radius:12px;padding:12px 20px;font:inherit;font-size:15px;
+  font-weight:600;color:#fff;background:var(--brand);cursor:pointer;touch-action:manipulation;display:inline-block}
+.btn:active{filter:brightness(.9)}
+.btn.amber{background:#f59e0b}.btn.indigo{background:#4f46e5}.btn.slate{background:#475569}
+.err{color:var(--bad);font-weight:600;font-size:14px;margin-top:12px}
+#dashboard-zone{margin-bottom:20px}
+#dashboard-zone h2{font-size:17px;margin:0 0 14px}
+.grid4{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;text-align:center}
+@media(min-width:640px){.grid4{grid-template-columns:repeat(4,1fr)}}
+.stat{padding:12px;border-radius:12px;background:var(--hover)}
+.stat small{display:block;font-size:11px;font-weight:600;color:var(--muted)}
+.stat b{font-size:24px;font-weight:800}
+.stat.g b{color:var(--ok)}.stat.r b{color:var(--bad)}.stat.b b{color:var(--brand)}
+.actions{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.actions label{margin-right:auto;display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;cursor:pointer;padding:6px 0}
+.actions input{width:20px;height:20px;accent-color:#9333ea}
+.actions .btn{padding:10px 16px;font-size:14px}
+@media(max-width:520px){.actions .btn{flex:1 1 100%;text-align:center}}
+#quiz-container{display:flex;flex-direction:column;gap:20px;margin-top:20px}
+.q{padding:20px}
+.q.right{box-shadow:0 0 0 2px var(--ok-line)}
+.q.wrong{box-shadow:0 0 0 2px var(--bad-line)}
+.q h3{margin:0 0 14px;font-size:16px;font-weight:700;white-space:pre-wrap;word-break:break-word}
+.choices{display:grid;gap:10px}
+.choice{appearance:none;-webkit-appearance:none;width:100%;text-align:left;font:inherit;font-size:15px;font-weight:500;color:var(--text);
+  background:transparent;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;touch-action:manipulation;
+  display:flex;justify-content:space-between;align-items:center;gap:12px;white-space:pre-wrap;word-break:break-word}
+@media(hover:hover){.choice:not(:disabled):hover{background:var(--hover)}}
+.choice:disabled{cursor:not-allowed;opacity:1}
+.choice.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok-text);font-weight:600}
+.choice.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad-text);font-weight:600}
+.tag{flex-shrink:0;font-weight:700;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap head-in">
+    <h1>🚀 Hệ Thống Ôn Thi Trắc Nghiệm</h1>
+    <div id="realtime-stats" class="hidden">
+      <span class="s-ok">Đúng: <span id="stat-correct">0</span></span>
+      <span class="s-bad">Sai: <span id="stat-wrong">0</span></span>
+      <span class="s-pg">Tiến độ: <span id="stat-progress">0/0</span></span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="upload-zone" class="card">
+    <div class="ico">📂</div>
+    <p style="font-size:18px;font-weight:600">Tải lên file Word câu hỏi của bạn</p>
+    <p class="tip">Hệ thống tự động nhận diện đáp án dựa trên màu nền HIGHLIGHT xanh lá (hoặc dấu * đầu dòng) trong file Word</p>
+    <label class="btn" for="file-input">Chọn file .docx</label>
+    <input type="file" id="file-input" class="hidden"
+      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+    <div id="err" class="err hidden"></div>
+  </div>
+
+  <div id="dashboard-zone" class="card hidden">
+    <h2>📊 Thống kê tiến trình</h2>
+    <div class="grid4">
+      <div class="stat"><small>TỔNG SỐ CÂU</small><b id="dash-total">0</b></div>
+      <div class="stat g"><small>ĐÃ ĐÚNG</small><b id="dash-correct">0</b></div>
+      <div class="stat r"><small>BỊ SAI</small><b id="dash-wrong">0</b></div>
+      <div class="stat b"><small>TỶ LỆ ĐÚNG</small><b id="dash-percent">0%</b></div>
+    </div>
+    <div class="actions">
+      <label><input type="checkbox" id="shuffle-toggle" /> 🔀 Đảo đáp án</label>
+      <button class="btn amber hidden" id="btn-redo-wrong" type="button">🔄 Làm lại câu sai + chưa làm (<span id="count-wrong-redo">0</span>)</button>
+      <button class="btn indigo" id="btn-restart-exam" type="button">🔁 Làm lại bài thi</button>
+      <button class="btn slate" id="btn-reset" type="button">🗑️ Đổi file khác</button>
+    </div>
+  </div>
+
+  <div id="quiz-container"></div>
+</main>
+
+<script>
+// ===== Đọc file .docx (zip) hoàn toàn offline, không cần thư viện ngoài =====
+const Inflate = (() => {
+    const LB = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+    const LE = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+    const DB = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+    const DE = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+    const ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+
+    function build(lengths, n) {
+        const count = new Uint16Array(16), symbol = new Uint16Array(n), offs = new Uint16Array(16);
+        for (let i = 0; i < n; i++) count[lengths[i]]++;
+        count[0] = 0;
+        for (let l = 1; l < 15; l++) offs[l + 1] = offs[l] + count[l];
+        for (let s = 0; s < n; s++) if (lengths[s]) symbol[offs[lengths[s]]++] = s;
+        return { count, symbol };
+    }
+
+    let fixedL = null, fixedD = null;
+    function fixedTables() {
+        if (!fixedL) {
+            const l = new Uint8Array(288);
+            for (let i = 0; i < 144; i++) l[i] = 8;
+            for (let i = 144; i < 256; i++) l[i] = 9;
+            for (let i = 256; i < 280; i++) l[i] = 7;
+            for (let i = 280; i < 288; i++) l[i] = 8;
+            fixedL = build(l, 288);
+            fixedD = build(new Uint8Array(30).fill(5), 30);
+        }
+    }
+
+    return function inflate(src, sizeHint) {
+        let pos = 0, bitBuf = 0, bitCnt = 0;
+        let out = new Uint8Array(Math.max(sizeHint || 0, src.length * 4, 1024)), op = 0;
+
+        function bits(n) {
+            while (bitCnt < n) {
+                if (pos >= src.length) throw new Error("Dữ liệu nén bị cụt");
+                bitBuf |= src[pos++] << bitCnt;
+                bitCnt += 8;
+            }
+            const v = bitBuf & ((1 << n) - 1);
+            bitBuf >>>= n;
+            bitCnt -= n;
+            return v;
+        }
+        function decode(h) {
+            let code = 0, first = 0, index = 0;
+            for (let len = 1; len <= 15; len++) {
+                code |= bits(1);
+                const c = h.count[len];
+                if (code - c < first) return h.symbol[index + (code - first)];
+                index += c; first += c; first <<= 1; code <<= 1;
+            }
+            throw new Error("Mã Huffman không hợp lệ");
+        }
+        function ensure(n) {
+            if (op + n > out.length) {
+                const no = new Uint8Array(Math.max(out.length * 2, op + n));
+                no.set(out.subarray(0, op));
+                out = no;
+            }
+        }
+        function codes(lc, dc) {
+            for (;;) {
+                let sym = decode(lc);
+                if (sym < 256) { ensure(1); out[op++] = sym; }
+                else if (sym === 256) return;
+                else {
+                    sym -= 257;
+                    if (sym >= 29) throw new Error("Mã độ dài không hợp lệ");
+                    const len = LB[sym] + bits(LE[sym]);
+                    const ds = decode(dc);
+                    const dist = DB[ds] + bits(DE[ds]);
+                    if (dist > op) throw new Error("Khoảng cách không hợp lệ");
+                    ensure(len);
+                    for (let i = 0; i < len; i++, op++) out[op] = out[op - dist];
+                }
+            }
+        }
+
+        let last;
+        do {
+            last = bits(1);
+            const type = bits(2);
+            if (type === 0) {
+                bitBuf = 0; bitCnt = 0;
+                const len = src[pos] | (src[pos + 1] << 8);
+                pos += 4;
+                ensure(len);
+                out.set(src.subarray(pos, pos + len), op);
+                op += len; pos += len;
+            } else if (type === 1) {
+                fixedTables();
+                codes(fixedL, fixedD);
+            } else if (type === 2) {
+                const nlen = bits(5) + 257, ndist = bits(5) + 1, ncode = bits(4) + 4;
+                const lengths = new Uint8Array(320);
+                for (let i = 0; i < ncode; i++) lengths[ORDER[i]] = bits(3);
+                const lencode = build(lengths, 19);
+                const lens = new Uint8Array(320);
+                let idx = 0;
+                while (idx < nlen + ndist) {
+                    let sym = decode(lencode);
+                    if (sym < 16) lens[idx++] = sym;
+                    else {
+                        let prev = 0, rep;
+                        if (sym === 16) { prev = lens[idx - 1]; rep = 3 + bits(2); }
+                        else if (sym === 17) rep = 3 + bits(3);
+                        else rep = 11 + bits(7);
+                        while (rep--) lens[idx++] = prev;
+                    }
+                }
+                codes(build(lens.subarray(0, nlen), nlen), build(lens.subarray(nlen), ndist));
+            } else throw new Error("Khối nén không hợp lệ");
+        } while (!last);
+        return out.subarray(0, op);
+    };
+})();
+
+// Lấy 1 file bên trong .docx (zip) theo tên
+function readZipEntry(buf, wanted) {
+    const u8 = new Uint8Array(buf);
+    const dv = new DataView(buf);
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) {
+        if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Đây không phải file .docx hợp lệ");
+    const total = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    for (let n = 0; n < total; n++) {
+        if (dv.getUint32(p, true) !== 0x02014b50) break;
+        const method = dv.getUint16(p + 10, true);
+        const csize = dv.getUint32(p + 20, true);
+        const usize = dv.getUint32(p + 24, true);
+        const nlen = dv.getUint16(p + 28, true);
+        const elen = dv.getUint16(p + 30, true);
+        const clen = dv.getUint16(p + 32, true);
+        const lho = dv.getUint32(p + 42, true);
+        const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+        if (name === wanted) {
+            const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+            const data = u8.subarray(start, start + csize);
+            if (method === 0) return data;
+            if (method === 8) return Inflate(data, usize);
+            throw new Error("Kiểu nén không được hỗ trợ");
+        }
+        p += 46 + nlen + elen + clen;
+    }
+    throw new Error("Không tìm thấy nội dung văn bản trong file");
+}
+
+let currentQuestions = [];  
+            let allQuestions = [];      // toàn bộ đề gốc, dùng cho 'Làm lại bài thi'
+            let shuffleEnabled = false; // bật/tắt đảo đáp án
+            let score = {
+                correct: 0,
+                wrong: 0,
+                answeredCount: 0
+            };
+
+            
+
+            function showError(msg){
+                const el = document.getElementById('err');
+                el.textContent = msg; el.classList.remove('hidden');
+            }
+
+            function handleFile(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                document.getElementById('err').classList.add('hidden');
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        parseQuestionsRobust(event.target.result);
+                    } catch(err) {
+                        showError("Lỗi đọc file DOCX: " + err.message);
+                        console.error(err);
+                    }
+                };
+                reader.onerror = function(){ showError("Không đọc được file, hãy thử lại."); };
+                reader.readAsArrayBuffer(file);
+            }
+
+            function parseQuestionsRobust(arrayBuffer) {
+                const xml = new TextDecoder("utf-8").decode(readZipEntry(arrayBuffer, "word/document.xml"));
+
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xml, "text/xml");
+                const paragraphs = Array.from(xmlDoc.getElementsByTagName("w:p"));
+
+                let currentQuestion = null;
+                let parsedQuestions = [];
+
+                paragraphs.forEach(p => {
+                    let paragraphText = "";
+                    let runs = Array.from(p.getElementsByTagName("w:r"));
+                    let answerKeyFound = null;
+
+                    runs.forEach(run => {
+                        // Đọc lần lượt nội dung trong run: chữ, xuống dòng (w:br), tab (w:tab)
+                        let text = "";
+                        Array.from(run.childNodes).forEach(node => {
+                            if (node.nodeName === "w:t") text += node.textContent;
+                            else if (node.nodeName === "w:br") text += "\n";
+                            else if (node.nodeName === "w:tab") text += "\t";
+                        });
+                        if (!text) return;
+                        paragraphText += text;
+
+                        const highlight = run.getElementsByTagName("w:highlight")[0];
+                        if (highlight && highlight.getAttribute("w:val") === "green") {
+                            const currentFullText = paragraphText.trim();
+                            const match = currentFullText.match(/([A-E])\.\s*$/) || currentFullText.match(/^([A-E])\.\s*/);
+                            if (match) {
+                                answerKeyFound = match[1];
+                            } else {
+                                const startMatch = paragraphText.trim().match(/^([A-E])\./);
+                                if (startMatch) answerKeyFound = startMatch[1];
+                            }
+                        }
+                    });
+
+                    paragraphText = paragraphText.trim();
+                    if (!paragraphText) return;
+
+                    // Đáp án đúng đánh dấu bằng dấu * ở đầu dòng (vd: "*B. Nội dung")
+                    let starKey = null;
+                    const starMatch = paragraphText.match(/^\*\s*([A-Ea-e])\.\s*/);
+                    if (starMatch) {
+                        starKey = starMatch[1].toUpperCase();
+                        paragraphText = paragraphText.replace(/^\*\s*/, '');
+                    }
+
+                    if (/^Câu\s+\d+/i.test(paragraphText)) {
+                        if (currentQuestion) {
+                            parsedQuestions.push(currentQuestion);
+                        }
+                        currentQuestion = {
+                            text: paragraphText,
+                            choices: [],
+                            answer: null,
+                            userAnswer: null,
+                            selectedKey: null
+                        };
+                        return;
+                    }
+
+                    if (!currentQuestion) return;
+
+                    const choiceMatch = paragraphText.match(/^([A-E])\.\s*(.*)$/);
+                    if (choiceMatch) {
+                        currentQuestion.choices.push(paragraphText);
+                        if (starKey) {
+                            currentQuestion.answer = starKey;
+                        } else if (answerKeyFound) {
+                            currentQuestion.answer = answerKeyFound;
+                        } else if (Array.from(p.getElementsByTagName('w:highlight')).some(h => h.getAttribute('w:val') === 'green')) {
+                            currentQuestion.answer = choiceMatch[1];
+                        }
+                        return;
+                    }
+
+                    if (currentQuestion.choices.length > 0) {
+                        const last = currentQuestion.choices.length - 1;
+                        currentQuestion.choices[last] += " " + paragraphText;
+
+                        if (answerKeyFound) {
+                            const key = currentQuestion.choices[last].trim().charAt(0).toUpperCase();
+                            if (['A', 'B', 'C', 'D', 'E'].includes(key)) {
+                                currentQuestion.answer = key;
+                            }
+                        }
+                    } else {
+                        currentQuestion.text += "\n" + paragraphText;
+                    }
+                });
+
+                if (currentQuestion) {
+                    parsedQuestions.push(currentQuestion);
+                }
+
+                const finalQuestions = parsedQuestions.filter(q => q.choices.length >= 2);
+
+                if (finalQuestions.length === 0) {
+                    showError("Không tìm thấy câu hỏi hợp lệ! File cần định dạng: 'Câu 1: ...' và các dòng đáp án bắt đầu bằng 'A.', 'B.', 'C.', 'D.', 'E.'");
+                    return;
+                }
+
+                finalQuestions.forEach(q => {
+                    q.orig = { choices: q.choices.slice(), answer: q.answer };
+                    q.lockOrder = hasChoiceReference(q);
+                    applyOrder(q);
+                });
+
+                allQuestions = finalQuestions;
+                currentQuestions = finalQuestions.slice();
+
+                document.getElementById("upload-zone").classList.add("hidden");
+                document.getElementById("realtime-stats").classList.remove("hidden");
+                document.getElementById("dashboard-zone").classList.remove("hidden");
+
+                resetScoreState();
+                renderQuiz();
+            }
+
+            // Câu có đáp án dạng "Cả A và B", "Tất cả các đáp án trên"... thì không đảo được
+            function hasChoiceReference(q) {
+                const re = /(tất cả|các đáp án|các ý trên|đều đúng|đều sai|không có đáp án|\b[A-E]\s*(và|,|&|hoặc)\s*[A-E]\b|\bcả\s+[A-E]\b)/i;
+                return q.orig.choices.some(c => re.test(c.replace(/^[A-E]\.\s*/, '')));
+            }
+
+            // Sắp xếp lại đáp án của 1 câu (đảo hoặc trả về thứ tự gốc), tự gán lại nhãn A-E và đáp án đúng
+            function applyOrder(q) {
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                let items = q.orig.choices.map(c => ({
+                    key: c.trim().charAt(0).toUpperCase(),
+                    body: c.replace(/^[A-E]\.\s*/, '')
+                }));
+
+                if (shuffleEnabled && !q.lockOrder) {
+                    for (let i = items.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [items[i], items[j]] = [items[j], items[i]];
+                    }
+                }
+
+                q.choices = items.map((it, i) => `${letters[i]}. ${it.body}`);
+                const idx = items.findIndex(it => it.key === q.orig.answer);
+                q.answer = idx >= 0 ? letters[idx] : q.orig.answer;
+            }
+
+            function toggleShuffle(on) {
+                shuffleEnabled = on;
+                // Chỉ đổi thứ tự các câu chưa làm, câu đã làm giữ nguyên để kết quả không bị lệch
+                allQuestions.forEach(q => {
+                    if (q.userAnswer === null) applyOrder(q);
+                });
+                renderQuiz();
+            }
+
+            function resetScoreState() {
+                score.correct = 0;
+                score.wrong = 0;
+                score.answeredCount = 0;
+                updateStatsUI();
+            }
+
+            function updateStatsUI() {
+                document.getElementById('stat-correct').innerText = score.correct;
+                document.getElementById('stat-wrong').innerText = score.wrong;
+                document.getElementById('stat-progress').innerText = `${score.answeredCount}/${currentQuestions.length}`;
+
+                document.getElementById('dash-total').innerText = currentQuestions.length;
+                document.getElementById('dash-correct').innerText = score.correct;
+                document.getElementById('dash-wrong').innerText = score.wrong;
+
+                const percent = currentQuestions.length > 0 ? Math.round((score.correct / currentQuestions.length) * 100) : 0;
+                document.getElementById('dash-percent').innerText = `${percent}%`;
+
+                const countWrongRedo = currentQuestions.filter(q => q.userAnswer !== true).length;
+                const btnRedo = document.getElementById('btn-redo-wrong');
+                if (countWrongRedo > 0 && score.answeredCount > 0) {
+                    document.getElementById('count-wrong-redo').innerText = countWrongRedo;
+                    btnRedo.classList.remove('hidden');
+                } else {
+                    btnRedo.classList.add('hidden');
+                }
+            }
+
+            function escapeHtml(str) {
+                return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+
+            function renderQuiz() {
+                const container = document.getElementById('quiz-container');
+                container.innerHTML = '';
+
+                currentQuestions.forEach((q, index) => {
+                    const qCard = document.createElement('div');
+                    qCard.className = "card q";
+
+                    if (q.userAnswer === true) qCard.classList.add('right');
+                    if (q.userAnswer === false) qCard.classList.add('wrong');
+
+                    const qText = document.createElement('h3');
+                    
+                    qText.innerText = q.text;
+                    qCard.appendChild(qText);
+
+                    const choicesWrapper = document.createElement('div');
+                    choicesWrapper.className = "choices";
+
+                    q.choices.forEach(choice => {
+                        const choiceKey = choice.trim().charAt(0).toUpperCase();
+                        const btn = document.createElement('button');
+                        btn.className = "choice"; btn.type = "button";
+                        
+                        btn.innerHTML = `<span>${escapeHtml(choice)}</span>`;
+
+                        if (q.userAnswer !== null) {
+                            btn.disabled = true;
+                            if (choiceKey === q.answer) {
+                                btn.classList.add('ok');
+                                btn.innerHTML += '<span class="tag">✓ Đúng</span>';
+                            }
+                            if (choiceKey === q.selectedKey && choiceKey !== q.answer) {
+                                btn.classList.add('bad');
+                                btn.innerHTML += '<span class="tag">✗ Sai</span>';
+                            }
+                        } else {
+                            btn.onclick = () => selectAnswer(index, choiceKey, qCard, choicesWrapper);
+                        }
+
+                        choicesWrapper.appendChild(btn);
+                    });
+
+                    qCard.appendChild(choicesWrapper);
+                    container.appendChild(qCard);
+                });
+            }
+
+            function selectAnswer(qIdx, selectedKey, cardElement, wrapperElement) {
+                const question = currentQuestions[qIdx];
+                if (question.userAnswer !== null) return; 
+
+                question.selectedKey = selectedKey;
+                score.answeredCount++;
+
+                if (selectedKey === question.answer) {
+                    question.userAnswer = true;
+                    score.correct++;
+                } else {
+                    question.userAnswer = false;
+                    score.wrong++;
+                }
+
+                renderQuiz();
+                updateStatsUI();
+            }
+
+            function filterRedoWrong() {
+                // Làm lại = câu sai + câu chưa làm (giữ nguyên thứ tự ban đầu)
+                const redoQuestions = currentQuestions.filter(q => q.userAnswer !== true);
+                if (redoQuestions.length === 0) return;
+
+                currentQuestions = redoQuestions.map(q => {
+                    q.userAnswer = null;
+                    q.selectedKey = null;
+                    applyOrder(q);
+                    return q;
+                });
+
+                resetScoreState();
+                renderQuiz();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            function restartExam() {
+                if (allQuestions.length === 0) return;
+                if (score.answeredCount > 0 && !confirm('Làm lại toàn bộ bài thi từ đầu? Kết quả hiện tại sẽ bị xóa.')) return;
+
+                allQuestions.forEach(q => {
+                    q.userAnswer = null;
+                    q.selectedKey = null;
+                    applyOrder(q);
+                });
+                currentQuestions = allQuestions.slice();
+
+                resetScoreState();
+                renderQuiz();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            function resetAll() {
+                currentQuestions = [];
+                allQuestions = [];
+                document.getElementById('file-input').value = "";
+                document.getElementById('shuffle-toggle').checked = false;
+                shuffleEnabled = false;
+                document.getElementById('upload-zone').classList.remove('hidden');
+                document.getElementById('realtime-stats').classList.add('hidden');
+                document.getElementById('dashboard-zone').classList.add('hidden');
+                document.getElementById('quiz-container').innerHTML = '';
+                resetScoreState();
+            }
+
+            document.getElementById('file-input').addEventListener('change', handleFile, false);
+            document.getElementById('shuffle-toggle').addEventListener('change', function(){ toggleShuffle(this.checked); });
+            document.getElementById('btn-redo-wrong').addEventListener('click', filterRedoWrong);
+            document.getElementById('btn-restart-exam').addEventListener('click', restartExam);
+            document.getElementById('btn-reset').addEventListener('click', resetAll);
+</script>
+</body>
+</html>
