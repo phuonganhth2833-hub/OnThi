@@ -312,87 +312,83 @@ let currentQuestions = [];
                 let parsedQuestions = [];
 
                 paragraphs.forEach(p => {
-                    let paragraphText = "";
-                    let runs = Array.from(p.getElementsByTagName("w:r"));
-                    let answerKeyFound = null;
-
-                    runs.forEach(run => {
-                        // Đọc lần lượt nội dung trong run: chữ, xuống dòng (w:br), tab (w:tab)
-                        let text = "";
-                        Array.from(run.childNodes).forEach(node => {
-                            if (node.nodeName === "w:t") text += node.textContent;
-                            else if (node.nodeName === "w:br") text += "\n";
-                            else if (node.nodeName === "w:tab") text += "\t";
-                        });
-                        if (!text) return;
-                        paragraphText += text;
-
+                    // Gom nội dung đoạn thành các "dòng". Một đoạn có xuống dòng mềm (Shift+Enter)
+                    // sẽ được tách thành nhiều dòng riêng, mỗi dòng xử lý như một đoạn độc lập.
+                    let lines = [{ text: "", hl: false }];
+                    Array.from(p.getElementsByTagName("w:r")).forEach(run => {
                         const highlight = run.getElementsByTagName("w:highlight")[0];
-                        if (highlight && highlight.getAttribute("w:val") === "green") {
-                            const currentFullText = paragraphText.trim();
-                            const match = currentFullText.match(/([A-E])\.\s*$/) || currentFullText.match(/^([A-E])\.\s*/);
-                            if (match) {
-                                answerKeyFound = match[1];
-                            } else {
-                                const startMatch = paragraphText.trim().match(/^([A-E])\./);
-                                if (startMatch) answerKeyFound = startMatch[1];
+                        const isGreen = !!(highlight && highlight.getAttribute("w:val") === "green");
+                        Array.from(run.childNodes).forEach(node => {
+                            if (node.nodeName === "w:t") {
+                                const parts = node.textContent.split(/\r?\n/);
+                                parts.forEach((part, i) => {
+                                    if (i > 0) lines.push({ text: "", hl: false });
+                                    const cur = lines[lines.length - 1];
+                                    cur.text += part;
+                                    if (isGreen && part.trim()) cur.hl = true;
+                                });
+                            } else if (node.nodeName === "w:br") {
+                                lines.push({ text: "", hl: false });
+                            } else if (node.nodeName === "w:tab") {
+                                lines[lines.length - 1].text += "\t";
                             }
-                        }
+                        });
                     });
 
-                    paragraphText = paragraphText.trim();
-                    if (!paragraphText) return;
+                    lines.forEach(line => {
+                        let paragraphText = line.text.trim();
+                        if (!paragraphText) return;
+                        const answerKeyFound = line.hl;
 
-                    // Đáp án đúng đánh dấu bằng dấu * ở đầu dòng (vd: "*B. Nội dung")
-                    let starKey = null;
-                    const starMatch = paragraphText.match(/^\*\s*([A-Ea-e])\.\s*/);
-                    if (starMatch) {
-                        starKey = starMatch[1].toUpperCase();
-                        paragraphText = paragraphText.replace(/^\*\s*/, '');
-                    }
-
-                    if (/^Câu\s+\d+/i.test(paragraphText)) {
-                        if (currentQuestion) {
-                            parsedQuestions.push(currentQuestion);
+                        // Đáp án đúng đánh dấu bằng dấu * ở đầu dòng (vd: "*B. Nội dung")
+                        let starKey = null;
+                        const starMatch = paragraphText.match(/^\*\s*([A-Ea-e])\.\s*/);
+                        if (starMatch) {
+                            starKey = starMatch[1].toUpperCase();
+                            paragraphText = paragraphText.replace(/^\*\s*/, '');
                         }
-                        currentQuestion = {
-                            text: paragraphText,
-                            choices: [],
-                            answer: null,
-                            userAnswer: null,
-                            selectedKey: null
-                        };
-                        return;
-                    }
 
-                    if (!currentQuestion) return;
-
-                    const choiceMatch = paragraphText.match(/^([A-E])\.\s*(.*)$/);
-                    if (choiceMatch) {
-                        currentQuestion.choices.push(paragraphText);
-                        if (starKey) {
-                            currentQuestion.answer = starKey;
-                        } else if (answerKeyFound) {
-                            currentQuestion.answer = answerKeyFound;
-                        } else if (Array.from(p.getElementsByTagName('w:highlight')).some(h => h.getAttribute('w:val') === 'green')) {
-                            currentQuestion.answer = choiceMatch[1];
-                        }
-                        return;
-                    }
-
-                    if (currentQuestion.choices.length > 0) {
-                        const last = currentQuestion.choices.length - 1;
-                        currentQuestion.choices[last] += " " + paragraphText;
-
-                        if (answerKeyFound) {
-                            const key = currentQuestion.choices[last].trim().charAt(0).toUpperCase();
-                            if (['A', 'B', 'C', 'D', 'E'].includes(key)) {
-                                currentQuestion.answer = key;
+                        if (/^Câu\s+\d+/i.test(paragraphText)) {
+                            if (currentQuestion) {
+                                parsedQuestions.push(currentQuestion);
                             }
+                            currentQuestion = {
+                                text: paragraphText,
+                                choices: [],
+                                answer: null,
+                                userAnswer: null,
+                                selectedKey: null
+                            };
+                            return;
                         }
-                    } else {
-                        currentQuestion.text += "\n" + paragraphText;
-                    }
+
+                        if (!currentQuestion) return;
+
+                        const choiceMatch = paragraphText.match(/^([A-E])\.\s*(.*)$/);
+                        if (choiceMatch) {
+                            currentQuestion.choices.push(paragraphText);
+                            if (starKey) {
+                                currentQuestion.answer = starKey;
+                            } else if (answerKeyFound) {
+                                currentQuestion.answer = choiceMatch[1];
+                            }
+                            return;
+                        }
+
+                        if (currentQuestion.choices.length > 0) {
+                            const last = currentQuestion.choices.length - 1;
+                            currentQuestion.choices[last] += " " + paragraphText;
+
+                            if (answerKeyFound) {
+                                const key = currentQuestion.choices[last].trim().charAt(0).toUpperCase();
+                                if (['A', 'B', 'C', 'D', 'E'].includes(key)) {
+                                    currentQuestion.answer = key;
+                                }
+                            }
+                        } else {
+                            currentQuestion.text += "\n" + paragraphText;
+                        }
+                    });
                 });
 
                 if (currentQuestion) {
