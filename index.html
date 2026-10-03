@@ -207,6 +207,12 @@ header{position:sticky}
 :root[data-theme="dark"] #theme-toggle .i-sun{display:block}:root[data-theme="dark"] #theme-toggle .i-moon{display:none}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #theme-toggle .i-sun{display:block}:root:not([data-theme="light"]) #theme-toggle .i-moon{display:none}}
 .head-in h1{padding-right:52px}
+
+/* ===== Hình trong câu hỏi ===== */
+.qimg{display:block;max-width:100%;max-height:340px;height:auto;margin:10px auto;border-radius:14px;border:2px solid var(--line);background:#fff;cursor:zoom-in;object-fit:contain}
+.cimg{display:block;max-width:100%;max-height:200px;height:auto;margin:4px 0;border-radius:10px;background:#fff;object-fit:contain}
+#img-zoom{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out}
+#img-zoom img{max-width:100%;max-height:100%;border-radius:12px;background:#fff}
 </style>
 </head>
 <body>
@@ -429,7 +435,7 @@ const Inflate = (() => {
 })();
 
 // Lấy 1 file bên trong .docx (zip) theo tên
-function readZipEntry(buf, wanted) {
+function readZipEntry(buf, wanted, optional) {
     const u8 = new Uint8Array(buf);
     const dv = new DataView(buf);
     let eocd = -1;
@@ -449,7 +455,7 @@ function readZipEntry(buf, wanted) {
         const clen = dv.getUint16(p + 32, true);
         const lho = dv.getUint32(p + 42, true);
         const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
-        if (name === wanted) {
+        if (name.replace(/\\/g, '/').toLowerCase() === wanted.toLowerCase()) {
             const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
             const data = u8.subarray(start, start + csize);
             if (method === 0) return data;
@@ -458,6 +464,7 @@ function readZipEntry(buf, wanted) {
         }
         p += 46 + nlen + elen + clen;
     }
+    if (optional) return null;
     throw new Error("Không tìm thấy nội dung văn bản trong file");
 }
 
@@ -477,14 +484,105 @@ let currentQuestions = [];
                 el.textContent = msg; el.classList.remove('hidden');
             }
 
+
+            // ===== Hình ảnh trong đề (nhúng trong file Word) =====
+            let docImages = {};   // rId -> data URL
+            function blobToDataUrl(b){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});}
+            let docImgErr = {};   // rId -> lý do không đọc được hình
+            function sniffMime(b){
+                if(b.length<12) return null;
+                if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47) return 'image/png';
+                if(b[0]===0xFF&&b[1]===0xD8) return 'image/jpeg';
+                if(b[0]===0x47&&b[1]===0x49&&b[2]===0x46) return 'image/gif';
+                if(b[0]===0x42&&b[1]===0x4D) return 'image/bmp';
+                if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45&&b[10]===0x42&&b[11]===0x50) return 'image/webp';
+                const head=new TextDecoder().decode(b.subarray(0,200)).toLowerCase();
+                if(head.indexOf('<svg')>=0) return 'image/svg+xml';
+                return null;   // emf/wmf/tiff... trình duyệt không hiển thị được
+            }
+            async function bytesToDataUrl(bytes){
+                const mime=sniffMime(bytes);
+                if(!mime) throw new Error('định dạng hình không được trình duyệt hỗ trợ (EMF/WMF/TIFF?)');
+                const blob=new Blob([bytes],{type:mime});
+                if(mime==='image/svg+xml') return await blobToDataUrl(blob);
+                const raw=await blobToDataUrl(blob);
+                try{
+                    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('không giải mã được hình'));i.src=raw;});
+                    const MAXW=640,w=img.naturalWidth,h=img.naturalHeight;
+                    if(bytes.length<=60000 && w<=MAXW && mime!=='image/bmp') return raw;
+                    const sc=Math.min(1,MAXW/w),c=document.createElement('canvas');
+                    c.width=Math.max(1,Math.round(w*sc)); c.height=Math.max(1,Math.round(h*sc));
+                    const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+                    return c.toDataURL('image/jpeg',0.8);   // nén nhỏ để lưu được trong trình duyệt
+                } catch(e) {
+                    if(bytes.length<=400000) return raw;   // không nén được thì giữ nguyên bản gốc nếu không quá nặng
+                    throw e;
+                }
+            }
+            async function loadDocImages(buf){
+                const map={}; docImgErr={};
+                try{
+                    const relBytes=readZipEntry(buf,'word/_rels/document.xml.rels',true);
+                    if(!relBytes) return map;
+                    const doc=new DOMParser().parseFromString(new TextDecoder('utf-8').decode(relBytes),'text/xml');
+                    const rels=Array.from(doc.getElementsByTagName('Relationship'));
+                    for(const r of rels){
+                        const id=r.getAttribute('Id'), type=r.getAttribute('Type')||'';
+                        if(r.getAttribute('TargetMode')==='External'){ docImgErr[id]='hình liên kết ngoài, chưa nhúng trong file'; continue; }
+                        let t=(r.getAttribute('Target')||'').replace(/^\//,'').replace(/^(\.\.\/)+/,'');
+                        try{ t=decodeURIComponent(t); }catch(e){}
+                        const path=t.startsWith('word/')?t:'word/'+t;
+                        if(!/\/(image|oleObject|package)$/.test(type) && !/\.(png|jpe?g|gif|bmp|webp|svg|emf|wmf|tiff?|wdp|jfif)$/i.test(path)) continue;
+                        try{
+                            const data=readZipEntry(buf,path,true);
+                            if(!data){ docImgErr[id]='không tìm thấy '+path; continue; }
+                            map[id]=await bytesToDataUrl(data);
+                        }catch(e){ docImgErr[id]=(e&&e.message||'lỗi')+' ('+path.split('/').pop()+')'; console.warn('Bỏ qua 1 hình:',path,e); }
+                    }
+                }catch(e){console.warn(e);}
+                return map;
+            }
+            // Hình được lưu ngay trong chuỗi chữ dưới dạng [[IMG:data-url]] nên đảo đáp án vẫn giữ đúng hình của từng đáp án
+            function imgToken(node){
+                const nm=node.nodeName;
+                if(nm!=='w:drawing'&&nm!=='w:pict'&&nm!=='mc:AlternateContent'&&nm!=='w:object') return '';
+                const NS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+                const b=node.getElementsByTagName('a:blip')[0];
+                const v=node.getElementsByTagName('v:imagedata')[0];
+                let rid=null;
+                if(b) rid=b.getAttribute('r:embed')||b.getAttributeNS(NS,'embed')||b.getAttribute('r:link')||b.getAttributeNS(NS,'link');
+                else if(v) rid=v.getAttribute('r:id')||v.getAttributeNS(NS,'id');
+                if(!rid) return nm==='w:drawing'||nm==='w:pict'?' [không tìm thấy hình trong khối này] ':'';
+                if(docImages[rid]) return '[[IMG:'+docImages[rid]+']]';
+                return ' [hình không hiển thị được: '+(docImgErr[rid]||'không tìm thấy hình '+rid)+'] ';
+            }
+            function stripImg(t){return t.replace(/\[\[IMG:[^\]]+\]\]/g,'');}
+            function richNodes(text, cls){
+                const frag=document.createDocumentFragment();
+                const parts=text.split(/\[\[IMG:([^\]]+)\]\]/);
+                parts.forEach((p,i)=>{
+                    if(i%2===1){
+                        const im=document.createElement('img');
+                        im.src=p; im.alt='Hình minh họa'; im.className=cls; frag.appendChild(im);
+                    } else {
+                        let t=p;
+                        if(i>0) t=t.replace(/^\s+/,'');
+                        if(i<parts.length-1) t=t.replace(/\s+$/,'');
+                        if(t) frag.appendChild(document.createTextNode(t));
+                    }
+                });
+                return frag;
+            }
+
             function handleFile(e) {
                 const file = e.target.files[0];
                 if (!file) return;
                 pendingName = file.name.replace(/\.docx$/i, '').replace(/[_]+/g, ' ').trim() || 'Đề mới';
                 document.getElementById('err').classList.add('hidden');
                 const reader = new FileReader();
-                reader.onload = function(event) {
+                reader.onload = async function(event) {
                     try {
+                        docImages = await loadDocImages(event.target.result);
                         parseQuestionsRobust(event.target.result);
                     } catch(err) {
                         showError("Lỗi đọc file DOCX: " + err.message);
@@ -508,6 +606,7 @@ let currentQuestions = [];
                         const t = Array.from(run.getElementsByTagName("w:t")).map(n => n.textContent).join("");
                         if (h && h.getAttribute("w:val") === "green" && t.trim()) hl = true;
                         text += t;
+                        Array.from(run.childNodes).forEach(n => { text += imgToken(n); });
                     });
                     text = text.trim();
                     if (text) {
@@ -580,6 +679,9 @@ let currentQuestions = [];
                                 lines.push({ text: "", hl: false });
                             } else if (node.nodeName === "w:tab") {
                                 lines[lines.length - 1].text += "\t";
+                            } else {
+                                const tk = imgToken(node);
+                                if (tk) lines[lines.length - 1].text += tk;
                             }
                         });
                     });
@@ -812,7 +914,7 @@ let currentQuestions = [];
             // Câu có đáp án dạng "Cả A và B", "Tất cả các đáp án trên"... thì không đảo được
             function hasChoiceReference(q) {
                 const re = /(tất cả|các đáp án|các ý trên|đều đúng|đều sai|không có đáp án|\b[A-E]\s*(và|,|&|hoặc)\s*[A-E]\b|\bcả\s+[A-E]\b)/i;
-                return q.orig.choices.some(c => re.test(c.replace(/^[A-E]\.\s*/, '')));
+                return q.orig.choices.some(c => re.test(stripImg(c).replace(/^[A-E]\.\s*/, '')));
             }
 
             // Sắp xếp lại đáp án của 1 câu (đảo hoặc trả về thứ tự gốc), tự gán lại nhãn A-E và đáp án đúng
@@ -904,9 +1006,9 @@ let currentQuestions = [];
                         const qn = document.createElement('span');
                         qn.className = 'qn'; qn.innerText = nm[1];
                         qText.appendChild(qn);
-                        qText.appendChild(document.createTextNode(nm[2]));
+                        qText.appendChild(richNodes(nm[2], 'qimg'));
                     } else {
-                        qText.innerText = q.text;
+                        qText.appendChild(richNodes(q.text, 'qimg'));
                     }
                     qCard.appendChild(qText);
 
@@ -918,17 +1020,18 @@ let currentQuestions = [];
                         const btn = document.createElement('button');
                         btn.className = "choice"; btn.type = "button";
                         
-                        btn.innerHTML = `<span class="lt">${escapeHtml(choiceKey)}</span><span class="ct">${escapeHtml(choice.replace(/^\s*[A-E]\.\s*/, ''))}</span>`;
+                        btn.innerHTML = `<span class="lt">${escapeHtml(choiceKey)}</span><span class="ct"></span>`;
+                        btn.querySelector('.ct').appendChild(richNodes(choice.replace(/^\s*[A-E]\.\s*/, ''), 'cimg'));
 
                         if (q.userAnswer !== null) {
                             btn.disabled = true;
                             if (choiceKey === q.answer) {
                                 btn.classList.add('ok');
-                                btn.innerHTML += '<span class="tag">' + ic('check') + 'Đúng</span>';
+                                btn.insertAdjacentHTML('beforeend', '<span class="tag">' + ic('check') + 'Đúng</span>');
                             }
                             if (choiceKey === q.selectedKey && choiceKey !== q.answer) {
                                 btn.classList.add('bad');
-                                btn.innerHTML += '<span class="tag">' + ic('cross') + 'Sai</span>';
+                                btn.insertAdjacentHTML('beforeend', '<span class="tag">' + ic('cross') + 'Sai</span>');
                             }
                         } else {
                             btn.onclick = () => selectAnswer(index, choiceKey, qCard, choicesWrapper);
@@ -1072,6 +1175,19 @@ let currentQuestions = [];
     var next=isDark()?'light':'dark';
     root.setAttribute('data-theme',next);
     try{localStorage.setItem('theme',next)}catch(e){}
+  });
+})();
+</script>
+<script>
+(function(){
+  var box=document.getElementById('quiz-container');
+  box.addEventListener('click',function(e){
+    var t=e.target;
+    if(t.tagName!=='IMG'||!t.classList.contains('qimg')) return;
+    var o=document.createElement('div'); o.id='img-zoom';
+    var im=document.createElement('img'); im.src=t.src; o.appendChild(im);
+    o.addEventListener('click',function(){o.remove();});
+    document.body.appendChild(o);
   });
 })();
 </script>
