@@ -213,6 +213,12 @@ header{position:sticky}
 .cimg{display:block;max-width:100%;max-height:200px;height:auto;margin:4px 0;border-radius:10px;background:#fff;object-fit:contain}
 #img-zoom{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out}
 #img-zoom img{max-width:100%;max-height:100%;border-radius:12px;background:#fff}
+
+/* Ghi chú (chữ đỏ trong dấu ngoặc ở file Word) - chỉ hiện sau khi trả lời */
+.qnote{margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--bad-bg);border:2px solid var(--bad-line);color:var(--bad-text);font-size:14.5px;line-height:1.55;animation:qn-in .25s ease}
+.qnote b{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.qnote-body{white-space:pre-wrap;word-break:break-word}
+@keyframes qn-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
@@ -574,6 +580,36 @@ let currentQuestions = [];
                 return frag;
             }
 
+            // ===== Ghi chú: chữ màu đỏ nằm trong dấu ( ) =====
+            function runIsRed(run) {
+                const rPr = run.getElementsByTagName("w:rPr")[0];
+                if (!rPr) return false;
+                const c = rPr.getElementsByTagName("w:color")[0];
+                if (!c) return false;
+                const v = (c.getAttribute("w:val") || "").trim();
+                if (!/^[0-9a-f]{6}$/i.test(v)) return v.toLowerCase() === "red";
+                const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
+                return r >= 150 && g <= 90 && b <= 90 && r - g >= 90;
+            }
+            function markRed(t, red) { return (red && t.trim()) ? "\u0001" + t + "\u0002" : t; }
+            // Tách phần chữ đỏ trong ngoặc ra khỏi dòng. Chữ đỏ không nằm trong ngoặc thì giữ nguyên.
+            function extractNotes(raw) {
+                const notes = [];
+                let s = raw.replace(/([^)\s])\u0002(\s*)\u0001/g, "$1$2");
+                s = s.replace(/(\(\s*)?\u0001([^\u0002]*)\u0002(\s*\))?/g, (m, open, inner, close) => {
+                    const t = inner.trim();
+                    if (open || close || /^\(/.test(t) || /\)$/.test(t)) {
+                        const body = t.replace(/^\(\s*/, "").replace(/\s*\)$/, "").trim();
+                        if (body) notes.push(body);
+                        return " ";
+                    }
+                    return inner;
+                });
+                s = s.replace(/[\u0001\u0002]/g, "");
+                if (notes.length) s = s.replace(/[ \t]{2,}/g, " ");
+                return { text: s.trim(), notes: notes };
+            }
+
             function handleFile(e) {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -605,12 +641,17 @@ let currentQuestions = [];
                         const h = run.getElementsByTagName("w:highlight")[0];
                         const t = Array.from(run.getElementsByTagName("w:t")).map(n => n.textContent).join("");
                         if (h && h.getAttribute("w:val") === "green" && t.trim()) hl = true;
-                        text += t;
+                        text += markRed(t, runIsRed(run));
                         Array.from(run.childNodes).forEach(n => { text += imgToken(n); });
                     });
-                    text = text.trim();
+                    const ex = extractNotes(text);
+                    text = ex.text;
                     if (text) {
                         cur.push({ text: text, hl: hl });
+                        if (ex.notes.length) cur.notes = (cur.notes || []).concat(ex.notes);
+                    } else if (ex.notes.length) {
+                        const tgt = cur.length ? cur : blocks[blocks.length - 1];
+                        if (tgt) tgt.notes = (tgt.notes || []).concat(ex.notes);
                     } else if (cur.length) {
                         blocks.push(cur);
                         cur = [];
@@ -642,6 +683,7 @@ let currentQuestions = [];
                         text: "Câu " + (result.length + 1) + ": " + qText,
                         choices: choices,
                         answer: answer,
+                        note: lines.notes ? lines.notes.join("\n") : "",
                         userAnswer: null,
                         selectedKey: null
                     });
@@ -664,6 +706,7 @@ let currentQuestions = [];
                     // sẽ được tách thành nhiều dòng riêng, mỗi dòng xử lý như một đoạn độc lập.
                     let lines = [{ text: "", hl: false }];
                     Array.from(p.getElementsByTagName("w:r")).forEach(run => {
+                        const red = runIsRed(run);
                         const highlight = run.getElementsByTagName("w:highlight")[0];
                         const isGreen = !!(highlight && highlight.getAttribute("w:val") === "green");
                         Array.from(run.childNodes).forEach(node => {
@@ -672,7 +715,7 @@ let currentQuestions = [];
                                 parts.forEach((part, i) => {
                                     if (i > 0) lines.push({ text: "", hl: false });
                                     const cur = lines[lines.length - 1];
-                                    cur.text += part;
+                                    cur.text += markRed(part, red);
                                     if (isGreen && part.trim()) cur.hl = true;
                                 });
                             } else if (node.nodeName === "w:br") {
@@ -687,8 +730,14 @@ let currentQuestions = [];
                     });
 
                     lines.forEach(line => {
-                        let paragraphText = line.text.trim();
-                        if (!paragraphText) return;
+                        const ex = extractNotes(line.text);
+                        let paragraphText = ex.text;
+                        const attachNote = () => {
+                            if (ex.notes.length && currentQuestion) {
+                                currentQuestion.note = (currentQuestion.note ? currentQuestion.note + "\n" : "") + ex.notes.join("\n");
+                            }
+                        };
+                        if (!paragraphText) { attachNote(); return; }
                         const answerKeyFound = line.hl;
 
                         // Đáp án đúng đánh dấu bằng dấu * ở đầu dòng (vd: "*B. Nội dung")
@@ -707,13 +756,16 @@ let currentQuestions = [];
                                 text: paragraphText,
                                 choices: [],
                                 answer: null,
+                                note: "",
                                 userAnswer: null,
                                 selectedKey: null
                             };
+                            attachNote();
                             return;
                         }
 
                         if (!currentQuestion) return;
+                        attachNote();
 
                         const choiceMatch = paragraphText.match(/^([A-E])\.\s*(.*)$/);
                         if (choiceMatch) {
@@ -799,7 +851,7 @@ let currentQuestions = [];
                 const id = 'e' + Date.now();
                 lib.push({
                     id: id, name: name, date: Date.now(),
-                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer }))
+                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer, note: q.note || '' }))
                 });
                 writeLibrary(lib);
             }
@@ -808,7 +860,7 @@ let currentQuestions = [];
                 const ex = readLibrary().find(e => e.id === id);
                 if (!ex) return;
                 startQuiz(ex.questions.map(q => ({
-                    text: q.text, choices: q.choices.slice(), answer: q.answer,
+                    text: q.text, choices: q.choices.slice(), answer: q.answer, note: q.note || '',
                     userAnswer: null, selectedKey: null
                 })));
                 window.scrollTo({ top: 0 });
@@ -1041,6 +1093,14 @@ let currentQuestions = [];
                     });
 
                     qCard.appendChild(choicesWrapper);
+
+                    if (q.userAnswer !== null && q.note) {
+                        const nb = document.createElement('div');
+                        nb.className = 'qnote';
+                        nb.innerHTML = '<b>Ghi chú</b><div class="qnote-body"></div>';
+                        nb.querySelector('.qnote-body').textContent = q.note;
+                        qCard.appendChild(nb);
+                    }
                     container.appendChild(qCard);
                 });
             }
