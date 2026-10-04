@@ -581,15 +581,44 @@ let currentQuestions = [];
             }
 
             // ===== Ghi chú: chữ màu đỏ nằm trong dấu ( ) =====
+            // Màu chữ có thể nằm ở: chính đoạn chữ, Style của đoạn chữ, hoặc Style của đoạn văn
+            let styleColors = {};
+            function loadStyleColors(buf) {
+                styleColors = {};
+                try {
+                    const bytes = readZipEntry(buf, 'word/styles.xml', true);
+                    if (!bytes) return;
+                    const doc = new DOMParser().parseFromString(new TextDecoder('utf-8').decode(bytes), 'text/xml');
+                    Array.from(doc.getElementsByTagName('w:style')).forEach(st => {
+                        const id = st.getAttribute('w:styleId');
+                        const rPr = st.getElementsByTagName('w:rPr')[0];
+                        const c = rPr && rPr.getElementsByTagName('w:color')[0];
+                        if (id && c) styleColors[id] = (c.getAttribute('w:val') || '').trim();
+                    });
+                } catch (e) { console.warn(e); }
+            }
+            function isRedHex(v) {
+                v = (v || '').trim();
+                if (/^red$/i.test(v)) return true;
+                if (!/^[0-9a-f]{6}$/i.test(v)) return false;
+                const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
+                return r >= 160 && g <= 130 && b <= 130 && r - Math.max(g, b) >= 70;
+            }
             function runIsRed(run) {
                 const rPr = run.getElementsByTagName("w:rPr")[0];
-                if (!rPr) return false;
-                const c = rPr.getElementsByTagName("w:color")[0];
-                if (!c) return false;
-                const v = (c.getAttribute("w:val") || "").trim();
-                if (!/^[0-9a-f]{6}$/i.test(v)) return v.toLowerCase() === "red";
-                const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
-                return r >= 150 && g <= 90 && b <= 90 && r - g >= 90;
+                if (rPr) {
+                    const c = rPr.getElementsByTagName("w:color")[0];
+                    if (c) return isRedHex(c.getAttribute("w:val"));
+                    const rs = rPr.getElementsByTagName("w:rStyle")[0];
+                    if (rs && styleColors[rs.getAttribute("w:val")] !== undefined) return isRedHex(styleColors[rs.getAttribute("w:val")]);
+                }
+                let n = run.parentNode;
+                while (n && n.nodeName !== "w:p") n = n.parentNode;
+                if (n) {
+                    const ps = n.getElementsByTagName("w:pStyle")[0];
+                    if (ps && styleColors[ps.getAttribute("w:val")] !== undefined) return isRedHex(styleColors[ps.getAttribute("w:val")]);
+                }
+                return false;
             }
             function markRed(t, red) { return (red && t.trim()) ? "\u0001" + t + "\u0002" : t; }
             // Tách phần chữ đỏ trong ngoặc ra khỏi dòng. Chữ đỏ không nằm trong ngoặc thì giữ nguyên.
@@ -692,6 +721,7 @@ let currentQuestions = [];
             }
 
             function parseQuestionsRobust(arrayBuffer) {
+                loadStyleColors(arrayBuffer);
                 const xml = new TextDecoder("utf-8").decode(readZipEntry(arrayBuffer, "word/document.xml"));
 
                 const parser = new DOMParser();
