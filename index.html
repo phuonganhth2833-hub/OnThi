@@ -219,6 +219,30 @@ header{position:sticky}
 .qnote b{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
 .qnote-body{white-space:pre-wrap;word-break:break-word}
 @keyframes qn-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* ===== Tách 2 phần thành 2 pane ===== */
+#view-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px;scroll-margin-top:84px}
+#view-bar .vlabel{font-weight:700;font-size:14px;color:var(--muted);margin-right:2px}
+#view-bar .lib-btn{padding:9px 16px;font-size:14.5px;font-weight:600}
+#view-bar .lib-btn small{opacity:.75;font-weight:600;margin-left:4px}
+.pane{min-width:0}
+.pane-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;background:var(--card);
+  border:2px solid var(--line);border-radius:20px;padding:10px 16px;margin-bottom:14px}
+.pane-head b{font-family:"Baloo 2","Nunito",sans-serif;font-size:18px;font-weight:700}
+.pane-chips{display:flex;flex-wrap:wrap;gap:6px;font-size:13px;font-weight:700}
+.pane-chips span{background:var(--stat-bg);color:var(--muted);padding:2px 10px;border-radius:999px}
+.pane-chips .c-ok{color:var(--ok)}.pane-chips .c-bad{color:var(--bad)}
+.pane-body{display:flex;flex-direction:column;gap:18px}
+.pane-empty{color:var(--muted);text-align:center;padding:26px 12px}
+@media(min-width:900px){
+  main.wide{max-width:1440px}
+  #quiz-container.split{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  #quiz-container.split .pane{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:420px}
+  #quiz-container.split .pane-head{flex-shrink:0}
+  #quiz-container.split .pane-body{flex:1;min-height:0;overflow-y:auto;padding:2px 8px 28px 2px;scrollbar-width:thin;
+    scrollbar-color:var(--brand) transparent;overscroll-behavior:contain}
+}
+@media(max-width:899px){#view-bar .vsplit{display:none!important}}
 </style>
 </head>
 <body>
@@ -286,6 +310,7 @@ header{position:sticky}
     </div>
   </div>
 
+  <div id="view-bar" class="hidden" role="tablist" aria-label="Chọn phần đề"></div>
   <div id="quiz-container"></div>
 </main>
 
@@ -690,7 +715,12 @@ let currentQuestions = [];
 
                 const letters = ['A', 'B', 'C', 'D', 'E'];
                 const result = [];
+                let blockPart = null;
                 blocks.forEach(lines => {
+                    if (lines.length === 1) {
+                        const pm = lines[0].text.trim().match(/^Phần\s+(\d+)\s*[:.]?$/i);
+                        if (pm) blockPart = parseInt(pm[1], 10);
+                    }
                     if (lines.length < 3) return; // bỏ tiêu đề / dòng lẻ như "Phần 1"
                     const nAns = Math.min(4, lines.length - 1);
                     const qLines = lines.slice(0, lines.length - nAns);
@@ -711,6 +741,7 @@ let currentQuestions = [];
                     result.push({
                         text: "Câu " + (result.length + 1) + ": " + qText,
                         choices: choices,
+                        part: blockPart,
                         answer: answer,
                         note: lines.notes ? lines.notes.join("\n") : "",
                         userAnswer: null,
@@ -730,6 +761,7 @@ let currentQuestions = [];
 
                 let currentQuestion = null;
                 let parsedQuestions = [];
+                let partNo = null;   // đang ở "Phần N" nào trong file Word
 
                 paragraphs.forEach(p => {
                     // Gom nội dung đoạn thành các "dòng". Một đoạn có xuống dòng mềm (Shift+Enter)
@@ -768,6 +800,9 @@ let currentQuestions = [];
                             }
                         };
                         if (!paragraphText) { attachNote(); return; }
+                        // Dòng tiêu đề "Phần 1:", "Phần 2:"... -> đánh dấu phần, không đưa vào đáp án
+                        const partM = paragraphText.trim().match(/^Phần\s+(\d+)\s*[:.]?$/i);
+                        if (partM) { partNo = parseInt(partM[1], 10); return; }
                         const answerKeyFound = line.hl;
 
                         // Đáp án đúng đánh dấu bằng dấu * ở đầu dòng (vd: "*B. Nội dung")
@@ -784,6 +819,7 @@ let currentQuestions = [];
                             }
                             currentQuestion = {
                                 text: paragraphText,
+                                part: partNo,
                                 choices: [],
                                 answer: null,
                                 note: "",
@@ -840,6 +876,7 @@ let currentQuestions = [];
                     return;
                 }
 
+                assignParts(finalQuestions);
                 addToLibrary(pendingName, finalQuestions);
                 startQuiz(finalQuestions);
             }
@@ -881,7 +918,7 @@ let currentQuestions = [];
                 const id = 'e' + Date.now();
                 lib.push({
                     id: id, name: name, date: Date.now(),
-                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer, note: q.note || '' }))
+                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer, note: q.note || '', part: q.part || null }))
                 });
                 writeLibrary(lib);
             }
@@ -890,7 +927,7 @@ let currentQuestions = [];
                 const ex = readLibrary().find(e => e.id === id);
                 if (!ex) return;
                 startQuiz(ex.questions.map(q => ({
-                    text: q.text, choices: q.choices.slice(), answer: q.answer, note: q.note || '',
+                    text: q.text, choices: q.choices.slice(), answer: q.answer, note: q.note || '', part: q.part || null,
                     userAnswer: null, selectedKey: null
                 })));
                 window.scrollTo({ top: 0 });
@@ -976,6 +1013,7 @@ let currentQuestions = [];
             });
 
             function startQuiz(finalQuestions) {
+                assignParts(finalQuestions);
                 finalQuestions.forEach(q => {
                     q.orig = { choices: q.choices.slice(), answer: q.answer };
                     q.lockOrder = hasChoiceReference(q);
@@ -1070,11 +1108,7 @@ let currentQuestions = [];
                 return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             }
 
-            function renderQuiz() {
-                const container = document.getElementById('quiz-container');
-                container.innerHTML = '';
-
-                currentQuestions.forEach((q, index) => {
+            function buildCard(q, index) {
                     const qCard = document.createElement('div');
                     qCard.className = "card q";
 
@@ -1131,7 +1165,111 @@ let currentQuestions = [];
                         nb.querySelector('.qnote-body').textContent = q.note;
                         qCard.appendChild(nb);
                     }
-                    container.appendChild(qCard);
+                    return qCard;
+            }
+
+            // ===== Chia đề thành các phần (Phần 1, Phần 2...) =====
+            let viewMode = null;   // 'all' | 'split' | số của phần đang xem
+            const VIEW_KEY = 'onthi_view_v1';
+
+            // Câu chưa có phần (đề lưu từ bản cũ): đoán theo số câu, số câu quay về 1 nghĩa là sang phần mới
+            function assignParts(list) {
+                if (list.some(q => q.part)) {
+                    let last = 1;
+                    list.forEach(q => { if (q.part) last = q.part; else q.part = last; });
+                    return;
+                }
+                let part = 1, prev = 0;
+                list.forEach((q, i) => {
+                    const m = q.text.match(/^Câu\s+(\d+)/i);
+                    const n = m ? parseInt(m[1], 10) : null;
+                    if (n !== null) {
+                        if (i > 0 && n === 1 && prev > 1) part++;
+                        prev = n;
+                    }
+                    q.part = part;
+                });
+            }
+
+            function getParts() {
+                return Array.from(new Set(allQuestions.map(q => q.part || 1))).sort((a, b) => a - b);
+            }
+
+            function loadView(parts) {
+                let saved = null;
+                try { saved = localStorage.getItem(VIEW_KEY); } catch (e) {}
+                if (parts.length > 1 && (saved === 'all' || saved === 'split')) return saved;
+                const n = parseInt(saved, 10);
+                if (parts.indexOf(n) >= 0) return n;
+                return parts[0];
+            }
+
+            function setView(v) {
+                viewMode = v;
+                try { localStorage.setItem(VIEW_KEY, String(v)); } catch (e) {}
+                renderQuiz();
+                document.getElementById('view-bar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            function renderViewBar(parts) {
+                const bar = document.getElementById('view-bar');
+                if (parts.length < 2) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+                bar.classList.remove('hidden');
+                const cnt = p => currentQuestions.filter(q => (q.part || 1) === p).length;
+                let h = '<span class="vlabel">Xem:</span>';
+                parts.forEach(p => {
+                    h += '<button type="button" role="tab" class="lib-btn' + (viewMode === p ? ' open' : '') + '" data-view="' + p + '">Phần ' + p + '<small>(' + cnt(p) + ')</small></button>';
+                });
+                h += '<button type="button" role="tab" class="lib-btn' + (viewMode === 'all' ? ' open' : '') + '" data-view="all">Tất cả</button>';
+                h += '<button type="button" role="tab" class="lib-btn vsplit' + (viewMode === 'split' ? ' open' : '') + '" data-view="split">Chia đôi màn hình</button>';
+                bar.innerHTML = h;
+            }
+
+            function renderQuiz() {
+                const container = document.getElementById('quiz-container');
+                // giữ vị trí cuộn của từng pane để trả lời xong không bị nhảy về đầu
+                const keep = {};
+                container.querySelectorAll('.pane-body').forEach(el => { keep[el.dataset.part] = el.scrollTop; });
+                container.innerHTML = '';
+
+                const parts = getParts();
+                const multi = parts.length > 1;
+                if (!multi) viewMode = parts[0];
+                else if (viewMode === null || (viewMode !== 'all' && viewMode !== 'split' && parts.indexOf(viewMode) < 0)) viewMode = loadView(parts);
+
+                const split = multi && viewMode === 'split';
+                container.className = split ? 'split' : '';
+                document.querySelector('main').classList.toggle('wide', split);
+                renderViewBar(parts);
+
+                const show = (multi && (viewMode === 'all' || viewMode === 'split')) ? parts : [multi ? viewMode : parts[0]];
+                show.forEach(p => {
+                    const pane = document.createElement('section');
+                    pane.className = 'pane';
+                    const items = [];
+                    currentQuestions.forEach((q, i) => { if ((q.part || 1) === p) items.push({ q: q, i: i }); });
+
+                    if (multi) {
+                        const ok = items.filter(o => o.q.userAnswer === true).length;
+                        const bad = items.filter(o => o.q.userAnswer === false).length;
+                        const head = document.createElement('div');
+                        head.className = 'pane-head';
+                        head.innerHTML = '<b>Phần ' + p + '</b><div class="pane-chips"><span class="c-ok">Đúng ' + ok + '</span>' +
+                            '<span class="c-bad">Sai ' + bad + '</span><span>Tiến độ ' + (ok + bad) + '/' + items.length + '</span></div>';
+                        pane.appendChild(head);
+                    }
+
+                    const body = document.createElement('div');
+                    body.className = 'pane-body';
+                    body.dataset.part = p;
+                    if (!items.length) {
+                        body.innerHTML = '<div class="pane-empty">Không có câu nào cần làm ở phần này.</div>';
+                    } else {
+                        items.forEach(o => body.appendChild(buildCard(o.q, o.i)));
+                    }
+                    pane.appendChild(body);
+                    container.appendChild(pane);
+                    if (keep[p] !== undefined) body.scrollTop = keep[p];
                 });
             }
 
@@ -1228,6 +1366,10 @@ let currentQuestions = [];
                 document.getElementById('realtime-stats').classList.add('hidden');
                 document.getElementById('dashboard-zone').classList.add('hidden');
                 document.getElementById('quiz-container').innerHTML = '';
+                document.getElementById('quiz-container').className = '';
+                document.getElementById('view-bar').classList.add('hidden');
+                document.querySelector('main').classList.remove('wide');
+                viewMode = null;
                 resetScoreState();
                 renderLibrary();
                 window.scrollTo({ top: 0 });
@@ -1238,6 +1380,12 @@ let currentQuestions = [];
             document.getElementById('btn-redo-wrong').addEventListener('click', filterRedoWrong);
             document.getElementById('btn-restart-exam').addEventListener('click', function(){ restartExam(); });
             document.getElementById('btn-reset').addEventListener('click', resetAll);
+            document.getElementById('view-bar').addEventListener('click', function (ev) {
+                const b = ev.target.closest('button[data-view]');
+                if (!b) return;
+                const v = b.dataset.view;
+                setView(v === 'all' || v === 'split' ? v : parseInt(v, 10));
+            });
 
             renderLibrary();
 
