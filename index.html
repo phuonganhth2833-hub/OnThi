@@ -103,6 +103,16 @@ h2{font-size:19px;margin:0 0 14px;font-weight:700;letter-spacing:-.01em}
 @media(max-width:520px){.actions .btn{flex:1 1 100%;text-align:center}}
 
 /* Câu hỏi */
+.part-h{padding:10px 16px;border-radius:14px;background:var(--brand);color:#fff;font-weight:800;font-size:16px;margin-top:8px}
+#part-pane{display:flex;gap:8px;overflow-x:auto;padding:4px 0;margin-top:14px}
+#part-pane.hidden{display:none}
+#part-pane h4{display:none;margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+#part-pane button{flex:1 1 0;min-width:150px;text-align:left;padding:10px 14px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--text);font:inherit;cursor:pointer}
+#part-pane button:hover{background:var(--hover)}
+#part-pane button b{display:block;font-size:15px}
+#part-pane button small{color:var(--muted);font-size:12px}
+#part-pane button.on{border-color:var(--brand);background:var(--brand);color:var(--on-brand)}
+#part-pane button.on small{color:var(--on-brand)}
 #quiz-container{display:flex;flex-direction:column;gap:18px;margin-top:20px}
 .q{padding:22px;border-left:5px solid var(--line)}
 .q.right{border-left-color:var(--ok-line)}.q.wrong{border-left-color:var(--bad-line)}
@@ -285,6 +295,8 @@ header{position:sticky}
       <button class="btn slate" id="btn-reset" type="button"><svg class="ic ic-book"><use href="#fa-book-open"/></svg>Mục lục đề</button>
     </div>
   </div>
+
+  <nav id="part-pane" class="hidden" aria-label="Các phần"></nav>
 
   <div id="quiz-container"></div>
 </main>
@@ -475,6 +487,7 @@ function readZipEntry(buf, wanted, optional) {
 }
 
 let currentQuestions = [];  
+            let fullQuestions = [];     // toàn bộ đề (mọi phần)
             let allQuestions = [];      // toàn bộ đề gốc, dùng cho 'Làm lại bài thi'
             let shuffleEnabled = false; // bật/tắt đảo đáp án
             let score = {
@@ -737,6 +750,7 @@ let currentQuestions = [];
                 const paragraphs = Array.from(xmlDoc.getElementsByTagName("w:p"));
 
                 let currentQuestion = null;
+                let currentPart = '';
                 let parsedQuestions = [];
 
                 paragraphs.forEach(p => {
@@ -786,12 +800,17 @@ let currentQuestions = [];
                             paragraphText = paragraphText.replace(/^\*\s*/, '');
                         }
 
+                        // Tiêu đề phần: "PHẦN 1. MỨC ĐỘ DỄ ..." -> đặt phần hiện tại; dòng "Phần 1" trơ trọi -> bỏ qua
+                        if (/^PHẦN\s*\d+\s*[.:\-–]/i.test(paragraphText)) { currentPart = paragraphText.trim(); return; }
+                        if (/^Phần\s*\d+\s*$/i.test(paragraphText)) { return; }
+
                         if (/^Câu\s+\d+/i.test(paragraphText)) {
                             if (currentQuestion) {
                                 parsedQuestions.push(currentQuestion);
                             }
                             currentQuestion = {
                                 text: paragraphText,
+                                part: currentPart,
                                 choices: [],
                                 answer: null,
                                 note: "",
@@ -889,7 +908,7 @@ let currentQuestions = [];
                 const id = 'e' + Date.now();
                 lib.push({
                     id: id, name: name, date: Date.now(),
-                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer, note: q.note || '' }))
+                    questions: list.map(q => ({ text: q.text, choices: q.choices, answer: q.answer, note: q.note || '', part: q.part || '' }))
                 });
                 writeLibrary(lib);
             }
@@ -898,7 +917,7 @@ let currentQuestions = [];
                 const ex = readLibrary().find(e => e.id === id);
                 if (!ex) return;
                 startQuiz(ex.questions.map(q => ({
-                    text: q.text, choices: q.choices.slice(), answer: q.answer, note: q.note || '',
+                    text: q.text, choices: q.choices.slice(), answer: q.answer, note: q.note || '', part: q.part || '',
                     userAnswer: null, selectedKey: null
                 })));
                 window.scrollTo({ top: 0 });
@@ -990,6 +1009,8 @@ let currentQuestions = [];
                     applyOrder(q);
                 });
 
+                fullQuestions = finalQuestions;
+                buildPartPane(finalQuestions);
                 allQuestions = finalQuestions;
                 currentQuestions = finalQuestions.slice();
 
@@ -1002,6 +1023,37 @@ let currentQuestions = [];
             }
 
             // Câu có đáp án dạng "Cả A và B", "Tất cả các đáp án trên"... thì không đảo được
+            // Menu pane các phần: chọn 1 phần hoặc tất cả; điểm, thống kê, "làm lại" tính theo phần đang chọn
+            let partList = [], activePart = -1;
+            function buildPartPane(list) {
+                partList = Array.from(new Set(list.map(q => q.part).filter(Boolean)));
+                activePart = -1;
+                const nav = document.getElementById('part-pane');
+                if (partList.length < 2) { nav.classList.add('hidden'); return; }
+                nav.classList.remove('hidden');
+                renderPartPane();
+            }
+            function renderPartPane() {
+                const item = (i, t1, t2, n) => '<button type="button" data-p="' + i + '"' + (i === activePart ? ' class="on"' : '') + '><b>' +
+                    escapeHtml(t1) + '</b><small>' + (t2 ? escapeHtml(t2) + ' · ' : '') + n + ' câu</small></button>';
+                document.getElementById('part-pane').innerHTML = '<h4>Các phần</h4>' +
+                    item(-1, 'Tất cả', 'Toàn bộ đề', fullQuestions.length) +
+                    partList.map((p, i) => {
+                        const m = p.match(/^(PHẦN\s*\d+)\s*[.:\-–]\s*(.*)$/i);
+                        return item(i, m ? m[1] : p, m ? m[2] : '', fullQuestions.filter(q => q.part === p).length);
+                    }).join('');
+            }
+            document.getElementById('part-pane').addEventListener('click', function (ev) {
+                const b = ev.target.closest('button[data-p]');
+                if (!b) return;
+                activePart = +b.dataset.p;
+                fullQuestions.forEach(q => { q.userAnswer = null; q.selectedKey = null; applyOrder(q); });
+                allQuestions = activePart < 0 ? fullQuestions.slice() : fullQuestions.filter(q => q.part === partList[activePart]);
+                currentQuestions = allQuestions.slice();
+                renderPartPane(); resetScoreState(); renderQuiz();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
             function hasChoiceReference(q) {
                 const re = /(tất cả|các đáp án|các ý trên|đều đúng|đều sai|không có đáp án)/i;
                 const re2 = /(\b[A-Z]\s*([Vv]à|,|&|[Hh]oặc)\s*[A-Z]\b|\b[Cc]ả\s+[A-Z]\b)/;
@@ -1140,6 +1192,11 @@ let currentQuestions = [];
                         nb.querySelector('.qnote-body').textContent = q.note;
                         qCard.appendChild(nb);
                     }
+                    if (q.part && (index === 0 || currentQuestions[index - 1].part !== q.part)) {
+                        const ph = document.createElement('div');
+                        ph.className = 'part-h'; ph.textContent = q.part;
+                        container.appendChild(ph);
+                    }
                     container.appendChild(qCard);
                 });
             }
@@ -1237,6 +1294,7 @@ let currentQuestions = [];
                 document.getElementById('realtime-stats').classList.add('hidden');
                 document.getElementById('dashboard-zone').classList.add('hidden');
                 document.getElementById('quiz-container').innerHTML = '';
+                document.getElementById('part-pane').classList.add('hidden');
                 resetScoreState();
                 renderLibrary();
                 window.scrollTo({ top: 0 });
