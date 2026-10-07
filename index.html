@@ -826,6 +826,13 @@ let currentQuestions = [];
 
                         const choiceMatch = paragraphText.match(/^([A-Z])\.\s*(.*)$/);
                         if (choiceMatch && isNextChoice(choiceMatch[1], currentQuestion.choices)) {
+                            // Gặp lại "A." khi đã có đáp án -> các dòng trước đó thực ra là đoạn code/đề bài (vd: "A.setLuong(700);"),
+                            // chuyển chúng vào nội dung câu hỏi rồi bắt đầu lại danh sách đáp án
+                            if (choiceMatch[1] === 'A' && currentQuestion.choices.length > 0) {
+                                currentQuestion.text += "\n" + currentQuestion.choices.join("\n");
+                                currentQuestion.choices = [];
+                                currentQuestion.answer = null;
+                            }
                             currentQuestion.choices.push(paragraphText);
                             if (starKey) {
                                 currentQuestion.answer = starKey;
@@ -1047,10 +1054,9 @@ let currentQuestions = [];
                 const b = ev.target.closest('button[data-p]');
                 if (!b) return;
                 activePart = +b.dataset.p;
-                fullQuestions.forEach(q => { q.userAnswer = null; q.selectedKey = null; applyOrder(q); });
                 allQuestions = activePart < 0 ? fullQuestions.slice() : fullQuestions.filter(q => q.part === partList[activePart]);
                 currentQuestions = allQuestions.slice();
-                renderPartPane(); resetScoreState(); renderQuiz();
+                recomputeScore(); renderPartPane(); renderQuiz();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
 
@@ -1087,6 +1093,13 @@ let currentQuestions = [];
                     if (q.userAnswer === null) applyOrder(q);
                 });
                 renderQuiz();
+            }
+
+            function recomputeScore() {
+                score.correct = currentQuestions.filter(q => q.userAnswer === true).length;
+                score.wrong = currentQuestions.filter(q => q.userAnswer === false).length;
+                score.answeredCount = score.correct + score.wrong;
+                updateStatsUI();
             }
 
             function resetScoreState() {
@@ -1219,15 +1232,15 @@ let currentQuestions = [];
                 renderQuiz();
                 updateStatsUI();
 
-                if (score.answeredCount === currentQuestions.length) {
+                if (fullQuestions.every(q => q.userAnswer !== null)) {
                     setTimeout(showResult, 500);
                 }
             }
 
             function showResult() {
-                const total = allQuestions.length;
-                const right = allQuestions.filter(q => q.userAnswer === true).length;
-                const wrongList = allQuestions.filter(q => q.userAnswer !== true);
+                const total = fullQuestions.length;
+                const right = fullQuestions.filter(q => q.userAnswer === true).length;
+                const wrongList = fullQuestions.filter(q => q.userAnswer !== true);
                 const s = total ? parseFloat((right / total * 10).toFixed(2)) : 0;
                 document.getElementById('res-score').innerText = s;
                 document.getElementById('res-correct').innerText = right;
@@ -1238,6 +1251,13 @@ let currentQuestions = [];
                 document.getElementById('res-msg').innerText =
                     s >= 8 ? 'Xuất sắc!' : s >= 5 ? 'Khá tốt, cố gắng thêm nhé!' : 'Cần ôn tập thêm nhé!';
                 document.getElementById('result-modal').classList.remove('hidden');
+            }
+
+            function showAllParts() {
+                activePart = -1;
+                allQuestions = fullQuestions.slice();
+                currentQuestions = allQuestions.slice();
+                if (typeof renderPartPane === 'function' && partList.length >= 2) renderPartPane();
             }
 
             function closeResult() {
@@ -1309,8 +1329,14 @@ let currentQuestions = [];
             renderLibrary();
 
             // Popup kết quả
-            document.getElementById('res-restart').addEventListener('click', function(){ closeResult(); restartExam(true); });
-            document.getElementById('res-redo').addEventListener('click', function(){ closeResult(); filterRedoWrong(); });
+            document.getElementById('res-restart').addEventListener('click', function(){
+                closeResult(); showAllParts();
+                fullQuestions.forEach(q => { q.userAnswer = null; q.selectedKey = null; applyOrder(q); });
+                currentQuestions = allQuestions.slice();
+                resetScoreState(); renderQuiz();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            document.getElementById('res-redo').addEventListener('click', function(){ closeResult(); showAllParts(); filterRedoWrong(); });
             document.getElementById('res-exit').addEventListener('click', function(){ closeResult(); resetAll(); });
             document.getElementById('result-modal').addEventListener('click', function(e){ if (e.target === this) closeResult(); });
             document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeResult(); });
